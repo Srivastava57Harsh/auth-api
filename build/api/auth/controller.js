@@ -22,22 +22,97 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createUser = void 0;
+exports.getProfile = exports.loginUser = exports.createUser = void 0;
+const token_1 = require("./../../shared/token");
 const database_1 = __importDefault(require("../../loaders/database"));
 const logger_1 = __importDefault(require("../../loaders/logger"));
 const bcrypt = __importStar(require("bcrypt"));
 const config_1 = __importDefault(require("../../config"));
+const mongodb_1 = require("mongodb");
 async function createUser(user) {
-    try {
-        const saltData = bcrypt.genSaltSync(config_1.default.salt);
-        user.password = bcrypt.hashSync(user.password, saltData);
-        await (await (0, database_1.default)()).collection("users").insertOne(user);
-        return true;
+    const userExists = await (await (0, database_1.default)()).collection("users").findOne({ email: user.email });
+    if (userExists) {
+        return {
+            bool: false,
+            message: "User already exists",
+            status: 400,
+        };
     }
-    catch (e) {
-        logger_1.default.error(e);
-        return false;
+    else {
+        try {
+            const saltData = bcrypt.genSaltSync(config_1.default.salt);
+            user.password = bcrypt.hashSync(user.password, saltData);
+            await (await (0, database_1.default)()).collection("users").insertOne(user);
+            return {
+                bool: true,
+                message: "Success",
+                status: 200,
+            };
+        }
+        catch (e) {
+            logger_1.default.error(e);
+            return {
+                bool: false,
+                message: "User could not be created",
+                status: 400,
+            };
+        }
     }
 }
 exports.createUser = createUser;
+async function loginUser(email, password) {
+    try {
+        const userData = await (await (0, database_1.default)()).collection("users").findOne({ email: email });
+        if (!userData) {
+            return {
+                message: "User does not exist, Sign Up instead",
+                status: 404,
+            };
+        }
+        if (bcrypt.compareSync(password, userData.password)) {
+            return {
+                message: "Login Successful",
+                status: 200,
+                token: (0, token_1.createToken)({ id: userData._id.toString() })
+            };
+        }
+        else {
+            return {
+                message: "Password does not match",
+                status: 401
+            };
+        }
+    }
+    catch (e) {
+        logger_1.default.error(e);
+        return {
+            message: `Something went wrong, [ERROR : ${e}]`,
+            status: 500
+        };
+    }
+}
+exports.loginUser = loginUser;
+async function getProfile(token) {
+    let id;
+    try {
+        id = (0, token_1.verifyToken)(token).id;
+    }
+    catch (e) {
+        logger_1.default.error(e);
+        throw {
+            message: "Unauthorized Access",
+            status: 401
+        };
+    }
+    const user = await (await (0, database_1.default)()).collection("users").findOne({ _id: new mongodb_1.ObjectId(id) });
+    delete user.password;
+    if (!user) {
+        throw {
+            message: "User does not exist",
+            status: 404
+        };
+    }
+    return user;
+}
+exports.getProfile = getProfile;
 //# sourceMappingURL=controller.js.map
